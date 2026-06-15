@@ -29,6 +29,14 @@ OFFSET_PATH = Path.home() / ".cache" / "update-bot-offset"
 LOCK_PATH = Path.home() / ".cache" / "update-bot.lock"
 
 
+def cmd_env() -> dict[str, str]:
+    """Ensure system tools are on PATH for subprocesses (see update_checker.py)."""
+    env = os.environ.copy()
+    system = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    env["PATH"] = f"{system}:{env.get('PATH', '')}"
+    return env
+
+
 def tg_request(token: str, method: str, **payload) -> dict:
     resp = requests.post(
         TG_API.format(token=token, method=method),
@@ -87,16 +95,16 @@ def save_offset(offset: int) -> None:
 
 
 def run_query_cmd(cmd: list[str]) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=cmd_env())
     if result.returncode not in (0, 1):
         parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
         detail = "\n".join(parts) if parts else "(no output)"
         msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
         if cmd[0] == "checkupdates" and result.returncode == 2:
             msg += (
-                "\nHint: checkupdates exit 2 is a pacman error — install fakeroot "
-                "(`sudo pacman -S fakeroot`), ensure no pacman lock, and run "
-                "`checkupdates` in a shell for the full message"
+                "\nHint: checkupdates exit 2 with no output often means pacman or "
+                "fakeroot were not found on PATH inside the script (common under "
+                "`uv run`)."
             )
         raise RuntimeError(msg)
     return result.stdout.strip()
@@ -212,6 +220,7 @@ def run_system_update(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        env=cmd_env(),
     )
 
     try:

@@ -15,17 +15,30 @@ MAX_MSG_LEN = 3500
 CALLBACK_DATA = "sysupdate:run"
 
 
+def cmd_env() -> dict[str, str]:
+    """Ensure system tools are on PATH for subprocesses.
+
+    uv run can give Python a trimmed PATH. checkupdates then starts but its
+    internal pacman/fakeroot calls fail silently with exit 2.
+    """
+    env = os.environ.copy()
+    system = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    env["PATH"] = f"{system}:{env.get('PATH', '')}"
+    return env
+
+
 def run_cmd(cmd: list[str]) -> str:
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True, env=cmd_env())
     if result.returncode not in (0, 1):
         parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
         detail = "\n".join(parts) if parts else "(no output)"
         msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
         if cmd[0] == "checkupdates" and result.returncode == 2:
             msg += (
-                "\nHint: checkupdates exit 2 is a pacman error — install fakeroot "
-                "(`sudo pacman -S fakeroot`), ensure no pacman lock, and run "
-                "`checkupdates` in a shell for the full message"
+                "\nHint: checkupdates exit 2 with no output often means pacman or "
+                "fakeroot were not found on PATH inside the script (common under "
+                "`uv run`). This script prepends /usr/bin to PATH; if it still "
+                "fails, run `checkupdates` in a shell and compare `echo $PATH`."
             )
         raise RuntimeError(msg)
     return result.stdout.strip()

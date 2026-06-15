@@ -153,6 +153,8 @@ pgrep -a pacman; pgrep -a paru
 
 Do not run `checkupdates` as root.
 
+If `checkupdates` works in your shell but fails via `uv run` with exit 2 and no output, `uv` likely trimmed `PATH` so the script could not find `pacman`/`fakeroot` internally. The scripts prepend `/usr/bin` etc. to `PATH` for subprocesses — reinstall the latest script if you hit this.
+
 ### Acceptance checklist
 
 - [ ] Run `update_checker.py` with pending updates → Telegram message with correct package list and a working button
