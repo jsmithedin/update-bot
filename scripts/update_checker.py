@@ -13,34 +13,65 @@ import requests
 TG_API = "https://api.telegram.org/bot{token}/{method}"
 MAX_MSG_LEN = 3500
 CALLBACK_DATA = "sysupdate:run"
+CHECKUPDATES = "/usr/bin/checkupdates"
 
 
 def cmd_env() -> dict[str, str]:
-    """Ensure system tools are on PATH for subprocesses.
+    """Environment for pacman/paru subprocesses.
 
-    uv run can give Python a trimmed PATH. checkupdates then starts but its
-    internal pacman/fakeroot calls fail silently with exit 2.
+    uv run may set TMPDIR to a cache directory that checkupdates/fakeroot
+    cannot use for a temporary root, causing silent exit 2.
     """
     env = os.environ.copy()
+    env["HOME"] = os.path.expanduser("~")
     system = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     env["PATH"] = f"{system}:{env.get('PATH', '')}"
+    env["TMPDIR"] = "/tmp"
     return env
+
+
+def format_cmd_failure(cmd: list[str], result: subprocess.CompletedProcess[str], env: dict[str, str]) -> str:
+    parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
+    detail = "\n".join(parts) if parts else "(no output)"
+    msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
+    if os.path.basename(cmd[-1]) == "checkupdates" or cmd[0] == "checkupdates":
+        msg += (
+            f"\nDebug: uv TMPDIR={os.environ.get('TMPDIR')!r}, "
+            f"subprocess TMPDIR={env.get('TMPDIR')!r}"
+        )
+        trace = subprocess.run(
+            ["/usr/bin/bash", "-x", CHECKUPDATES],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+        trace_lines = (trace.stderr + trace.stdout).splitlines()
+        if trace_lines:
+            msg += "\nTrace tail:\n" + "\n".join(trace_lines[-8:])
+    return msg
+
+
+def run_checkupdates() -> str:
+    env = cmd_env()
+    attempts: list[list[str]] = [
+        [CHECKUPDATES],
+        ["/usr/bin/bash", "-lc", CHECKUPDATES],
+    ]
+    last: subprocess.CompletedProcess[str] | None = None
+    for cmd in attempts:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        last = result
+        if result.returncode in (0, 1):
+            return result.stdout.strip()
+    assert last is not None
+    raise RuntimeError(format_cmd_failure(attempts[-1], last, env))
 
 
 def run_cmd(cmd: list[str]) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, env=cmd_env())
     if result.returncode not in (0, 1):
-        parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
-        detail = "\n".join(parts) if parts else "(no output)"
-        msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
-        if cmd[0] == "checkupdates" and result.returncode == 2:
-            msg += (
-                "\nHint: checkupdates exit 2 with no output often means pacman or "
-                "fakeroot were not found on PATH inside the script (common under "
-                "`uv run`). This script prepends /usr/bin to PATH; if it still "
-                "fails, run `checkupdates` in a shell and compare `echo $PATH`."
-            )
-        raise RuntimeError(msg)
+        raise RuntimeError(format_cmd_failure(cmd, result, cmd_env()))
     return result.stdout.strip()
 
 
@@ -77,7 +108,7 @@ def main() -> int:
         print("TG_BOT_TOKEN and TG_CHAT_ID must be set", file=sys.stderr)
         return 1
 
-    repo_updates = run_cmd(["checkupdates"])
+    repo_updates = run_checkupdates()
     aur_updates = run_cmd(["paru", "-Qua"])
 
     if not repo_updates and not aur_updates:

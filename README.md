@@ -153,7 +153,7 @@ pgrep -a pacman; pgrep -a paru
 
 Do not run `checkupdates` as root.
 
-If `checkupdates` works in your shell but fails via `uv run` with exit 2 and no output, `uv` likely trimmed `PATH` so the script could not find `pacman`/`fakeroot` internally. The scripts prepend `/usr/bin` etc. to `PATH` for subprocesses — reinstall the latest script if you hit this.
+If `checkupdates` works in your shell but fails via `uv run` with exit 2 and no output, `uv` may set `TMPDIR` to a cache directory that `checkupdates`/`fakeroot` cannot use. The scripts force `TMPDIR=/tmp` for subprocesses — reinstall the latest script if you hit this. On failure, the checker also prints a `bash -x` trace tail to help diagnose.
 
 ### Acceptance checklist
 

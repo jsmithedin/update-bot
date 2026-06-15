@@ -27,14 +27,35 @@ UPDATE_TIMEOUT = 3600
 PROGRESS_INTERVAL = 180
 OFFSET_PATH = Path.home() / ".cache" / "update-bot-offset"
 LOCK_PATH = Path.home() / ".cache" / "update-bot.lock"
+CHECKUPDATES = "/usr/bin/checkupdates"
 
 
 def cmd_env() -> dict[str, str]:
-    """Ensure system tools are on PATH for subprocesses (see update_checker.py)."""
+    """Environment for pacman/paru subprocesses (see update_checker.py)."""
     env = os.environ.copy()
+    env["HOME"] = os.path.expanduser("~")
     system = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     env["PATH"] = f"{system}:{env.get('PATH', '')}"
+    env["TMPDIR"] = "/tmp"
     return env
+
+
+def run_checkupdates() -> str:
+    env = cmd_env()
+    attempts: list[list[str]] = [
+        [CHECKUPDATES],
+        ["/usr/bin/bash", "-lc", CHECKUPDATES],
+    ]
+    last: subprocess.CompletedProcess[str] | None = None
+    for cmd in attempts:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        last = result
+        if result.returncode in (0, 1):
+            return result.stdout.strip()
+    assert last is not None
+    parts = [s for s in (last.stderr.strip(), last.stdout.strip()) if s]
+    detail = "\n".join(parts) if parts else "(no output)"
+    raise RuntimeError(f"checkupdates failed (exit {last.returncode}): {detail}")
 
 
 def tg_request(token: str, method: str, **payload) -> dict:
@@ -95,23 +116,18 @@ def save_offset(offset: int) -> None:
 
 
 def run_query_cmd(cmd: list[str]) -> str:
+    if cmd == ["checkupdates"]:
+        return run_checkupdates()
     result = subprocess.run(cmd, capture_output=True, text=True, env=cmd_env())
     if result.returncode not in (0, 1):
         parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
         detail = "\n".join(parts) if parts else "(no output)"
-        msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
-        if cmd[0] == "checkupdates" and result.returncode == 2:
-            msg += (
-                "\nHint: checkupdates exit 2 with no output often means pacman or "
-                "fakeroot were not found on PATH inside the script (common under "
-                "`uv run`)."
-            )
-        raise RuntimeError(msg)
+        raise RuntimeError(f"{cmd[0]} failed (exit {result.returncode}): {detail}")
     return result.stdout.strip()
 
 
 def list_pending_updates() -> tuple[str, str]:
-    return run_query_cmd(["checkupdates"]), run_query_cmd(["paru", "-Qua"])
+    return run_checkupdates(), run_query_cmd(["paru", "-Qua"])
 
 
 def format_remaining(
