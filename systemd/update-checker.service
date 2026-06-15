@@ -1,0 +1,8 @@
+[Unit]
+Description=Check for Arch/AUR updates and notify via Telegram
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/home/jamie/.config/update-bot.env
+ExecStart=/home/jamie/.local/bin/uv run /home/jamie/scripts/update_checker.py

@@ -1,0 +1,14 @@
+[Unit]
+Description=Telegram listener for Arch update callbacks
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/jamie/.config/update-bot.env
+ExecStart=/home/jamie/.local/bin/uv run /home/jamie/scripts/update_bot.py
+
+[Install]
+WantedBy=default.target
