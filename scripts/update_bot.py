@@ -89,9 +89,16 @@ def save_offset(offset: int) -> None:
 def run_query_cmd(cmd: list[str]) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode not in (0, 1):
-        raise RuntimeError(
-            f"{cmd[0]} failed (exit {result.returncode}): {result.stderr.strip()}"
-        )
+        parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
+        detail = "\n".join(parts) if parts else "(no output)"
+        msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
+        if cmd[0] == "checkupdates" and result.returncode == 2:
+            msg += (
+                "\nHint: checkupdates exit 2 is a pacman error — install fakeroot "
+                "(`sudo pacman -S fakeroot`), ensure no pacman lock, and run "
+                "`checkupdates` in a shell for the full message"
+            )
+        raise RuntimeError(msg)
     return result.stdout.strip()
 
 

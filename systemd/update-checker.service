@@ -4,5 +4,5 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-EnvironmentFile=/home/jamie/.config/update-bot.env
-ExecStart=/home/jamie/.local/bin/uv run /home/jamie/scripts/update_checker.py
+EnvironmentFile=%h/.config/update-bot.env
+ExecStart=%h/.local/bin/uv run %h/scripts/update_checker.py

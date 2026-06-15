@@ -29,13 +29,14 @@ On the Arch host:
 
 - [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (e.g. at `~/.local/bin/uv`)
 - [`pacman-contrib`](https://archlinux.org/packages/extra/x86_64/pacman-contrib/) — provides `checkupdates`
+- [`fakeroot`](https://archlinux.org/packages/core/x86_64/fakeroot/) — required by `checkupdates`
 - [`paru`](https://github.com/morganamilo/paru) — AUR helper
 - A Telegram bot token and chat ID
 
 Passwordless `pacman` via sudo (required so `paru` doesn't block on a password prompt during remote updates):
 
 ```bash
-echo "jamie ALL=(ALL) NOPASSWD: /usr/bin/pacman" | sudo tee /etc/sudoers.d/paru-update
+echo "$(whoami) ALL=(ALL) NOPASSWD: /usr/bin/pacman" | sudo tee /etc/sudoers.d/paru-update
 sudo chmod 440 /etc/sudoers.d/paru-update
 ```
 
@@ -75,7 +76,7 @@ systemctl --user enable --now update-bot.service
 systemctl --user enable --now update-checker.timer
 ```
 
-The systemd units use full paths for `uv` and the scripts (systemd does not inherit shell `PATH`). Adjust paths in the unit files if your layout differs from `/home/jamie/`.
+The systemd units use `%h` so paths resolve to the installing user's home directory (systemd does not inherit shell `PATH`). If `uv` lives elsewhere, edit `ExecStart` in the unit file after copying it.
 
 ### Timer behaviour
 
@@ -94,6 +95,63 @@ uv run ~/scripts/update_checker.py
 systemctl --user status update-bot.service
 journalctl --user -u update-bot.service -f
 ```
+
+## Troubleshooting
+
+### `Failed to load environment files: No such file or directory`
+
+The config file hasn't been created yet:
+
+```bash
+install -m600 -D config/update-bot.env.example ~/.config/update-bot.env
+# edit ~/.config/update-bot.env — set TG_BOT_TOKEN and TG_CHAT_ID
+```
+
+### `Failed to spawn 'start' task: No such file or directory`
+
+One of the paths in `ExecStart` doesn't exist. Check each on the host:
+
+```bash
+test -x ~/.local/bin/uv && echo "uv ok" || echo "uv missing — install uv or fix path in unit"
+test -x ~/scripts/update_bot.py && echo "script ok" || echo "script missing — run install step"
+```
+
+If `uv` is installed somewhere else (e.g. `/usr/bin/uv`), edit the unit:
+
+```bash
+systemctl --user edit --full update-bot.service
+# fix the ExecStart line, then:
+systemctl --user daemon-reload
+systemctl --user restart update-bot.service
+```
+
+After fixing paths or config, always reinstall units and reload if you pulled changes from the repo:
+
+```bash
+install -m644 systemd/*.service systemd/*.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user restart update-bot.service
+```
+
+### `checkupdates failed (exit 2)`
+
+Exit code 2 means `checkupdates` hit a pacman error (not "updates available" — that's exit 1). Run it directly to see the real message:
+
+```bash
+checkupdates
+```
+
+Common fixes:
+
+```bash
+# fakeroot is required by checkupdates
+sudo pacman -S fakeroot pacman-contrib
+
+# another pacman/paru process may hold the db lock
+pgrep -a pacman; pgrep -a paru
+```
+
+Do not run `checkupdates` as root.
 
 ### Acceptance checklist
 
