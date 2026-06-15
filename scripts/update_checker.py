@@ -17,11 +17,7 @@ CHECKUPDATES = "/usr/bin/checkupdates"
 
 
 def cmd_env() -> dict[str, str]:
-    """Environment for pacman/paru subprocesses.
-
-    uv run may set TMPDIR to a cache directory that checkupdates/fakeroot
-    cannot use for a temporary root, causing silent exit 2.
-    """
+    """Environment for pacman/paru subprocesses."""
     env = os.environ.copy()
     env["HOME"] = os.path.expanduser("~")
     system = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -30,48 +26,49 @@ def cmd_env() -> dict[str, str]:
     return env
 
 
-def format_cmd_failure(cmd: list[str], result: subprocess.CompletedProcess[str], env: dict[str, str]) -> str:
-    parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
-    detail = "\n".join(parts) if parts else "(no output)"
-    msg = f"{cmd[0]} failed (exit {result.returncode}): {detail}"
-    if os.path.basename(cmd[-1]) == "checkupdates" or cmd[0] == "checkupdates":
-        msg += (
-            f"\nDebug: uv TMPDIR={os.environ.get('TMPDIR')!r}, "
-            f"subprocess TMPDIR={env.get('TMPDIR')!r}"
-        )
-        trace = subprocess.run(
-            ["/usr/bin/bash", "-x", CHECKUPDATES],
-            capture_output=True,
-            text=True,
-            env=env,
-            timeout=120,
-        )
-        trace_lines = (trace.stderr + trace.stdout).splitlines()
-        if trace_lines:
-            msg += "\nTrace tail:\n" + "\n".join(trace_lines[-8:])
-    return msg
+def parse_checkupdates(result: subprocess.CompletedProcess[str]) -> str:
+    """Return pending repo updates, or "" if none.
+
+    pacman-contrib changed exit codes in 1.13.1 (Dec 2025):
+      old: 0 = none, 1 = updates, 2 = error
+      new: 0 = updates, 1 = error, 2 = none
+    """
+    code = result.returncode
+    out = result.stdout.strip()
+    err = result.stderr.strip()
+
+    if code == 0:
+        return out
+    if code == 1:
+        if out:
+            return out  # old: updates available
+        detail = err or "(no output)"
+        raise RuntimeError(f"checkupdates failed (exit 1): {detail}")
+    if code == 2:
+        if err:
+            detail = f"{err}\n{out}".strip() if out else err
+            raise RuntimeError(f"checkupdates failed (exit 2): {detail}")
+        return out  # new: no updates
+    detail = err or out or "(no output)"
+    raise RuntimeError(f"checkupdates failed (exit {code}): {detail}")
 
 
 def run_checkupdates() -> str:
-    env = cmd_env()
-    attempts: list[list[str]] = [
+    result = subprocess.run(
         [CHECKUPDATES],
-        ["/usr/bin/bash", "-lc", CHECKUPDATES],
-    ]
-    last: subprocess.CompletedProcess[str] | None = None
-    for cmd in attempts:
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        last = result
-        if result.returncode in (0, 1):
-            return result.stdout.strip()
-    assert last is not None
-    raise RuntimeError(format_cmd_failure(attempts[-1], last, env))
+        capture_output=True,
+        text=True,
+        env=cmd_env(),
+    )
+    return parse_checkupdates(result)
 
 
 def run_cmd(cmd: list[str]) -> str:
     result = subprocess.run(cmd, capture_output=True, text=True, env=cmd_env())
     if result.returncode not in (0, 1):
-        raise RuntimeError(format_cmd_failure(cmd, result, cmd_env()))
+        parts = [s for s in (result.stderr.strip(), result.stdout.strip()) if s]
+        detail = "\n".join(parts) if parts else "(no output)"
+        raise RuntimeError(f"{cmd[0]} failed (exit {result.returncode}): {detail}")
     return result.stdout.strip()
 
 

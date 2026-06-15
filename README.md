@@ -135,25 +135,27 @@ systemctl --user restart update-bot.service
 
 ### `checkupdates failed (exit 2)`
 
-Exit code 2 means `checkupdates` hit a pacman error (not "updates available" — that's exit 1). Run it directly to see the real message:
+**pacman-contrib 1.13.1+ (Dec 2025) changed exit codes.** Exit 2 now means *no updates available*, not an error. Older versions used exit 0 for that. The scripts handle both conventions.
+
+If you see exit 2 with no output after upgrading pacman-contrib, that is normal — it means the repo is up to date.
+
+For genuine errors, checkupdates exits **1** on new versions or **2 with stderr** on old versions:
 
 ```bash
 checkupdates
+echo "exit: $?"
 ```
 
-Common fixes:
+Common fixes when checkupdates actually fails:
 
 ```bash
-# fakeroot is required by checkupdates
 sudo pacman -S fakeroot pacman-contrib
-
-# another pacman/paru process may hold the db lock
-pgrep -a pacman; pgrep -a paru
+pgrep -a pacman; pgrep -a paru   # db lock?
 ```
 
 Do not run `checkupdates` as root.
 
-If `checkupdates` works in your shell but fails via `uv run` with exit 2 and no output, `uv` may set `TMPDIR` to a cache directory that `checkupdates`/`fakeroot` cannot use. The scripts force `TMPDIR=/tmp` for subprocesses — reinstall the latest script if you hit this. On failure, the checker also prints a `bash -x` trace tail to help diagnose.
+If `checkupdates` works in your shell but failed via an older copy of this script, reinstall the latest scripts — they also force `TMPDIR=/tmp` for subprocesses.
 
 ### Acceptance checklist
 

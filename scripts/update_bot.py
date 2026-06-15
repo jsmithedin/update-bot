@@ -40,22 +40,36 @@ def cmd_env() -> dict[str, str]:
     return env
 
 
+def parse_checkupdates(result: subprocess.CompletedProcess[str]) -> str:
+    """Return pending repo updates, or "" if none (see update_checker.py)."""
+    code = result.returncode
+    out = result.stdout.strip()
+    err = result.stderr.strip()
+
+    if code == 0:
+        return out
+    if code == 1:
+        if out:
+            return out
+        detail = err or "(no output)"
+        raise RuntimeError(f"checkupdates failed (exit 1): {detail}")
+    if code == 2:
+        if err:
+            detail = f"{err}\n{out}".strip() if out else err
+            raise RuntimeError(f"checkupdates failed (exit 2): {detail}")
+        return out
+    detail = err or out or "(no output)"
+    raise RuntimeError(f"checkupdates failed (exit {code}): {detail}")
+
+
 def run_checkupdates() -> str:
-    env = cmd_env()
-    attempts: list[list[str]] = [
+    result = subprocess.run(
         [CHECKUPDATES],
-        ["/usr/bin/bash", "-lc", CHECKUPDATES],
-    ]
-    last: subprocess.CompletedProcess[str] | None = None
-    for cmd in attempts:
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        last = result
-        if result.returncode in (0, 1):
-            return result.stdout.strip()
-    assert last is not None
-    parts = [s for s in (last.stderr.strip(), last.stdout.strip()) if s]
-    detail = "\n".join(parts) if parts else "(no output)"
-    raise RuntimeError(f"checkupdates failed (exit {last.returncode}): {detail}")
+        capture_output=True,
+        text=True,
+        env=cmd_env(),
+    )
+    return parse_checkupdates(result)
 
 
 def tg_request(token: str, method: str, **payload) -> dict:
