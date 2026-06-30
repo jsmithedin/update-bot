@@ -54,9 +54,7 @@ def parse_checkupdates(result: subprocess.CompletedProcess[str]) -> str:
         detail = err or "(no output)"
         raise RuntimeError(f"checkupdates failed (exit 1): {detail}")
     if code == 2:
-        if err:
-            detail = f"{err}\n{out}".strip() if out else err
-            raise RuntimeError(f"checkupdates failed (exit 2): {detail}")
+        # exit 2 means "no updates available" — stderr may contain sync noise, ignore it
         return out
     detail = err or out or "(no output)"
     raise RuntimeError(f"checkupdates failed (exit {code}): {detail}")
